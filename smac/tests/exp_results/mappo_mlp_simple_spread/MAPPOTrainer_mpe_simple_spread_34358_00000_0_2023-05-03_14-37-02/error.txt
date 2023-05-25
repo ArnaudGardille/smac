@@ -1,0 +1,75 @@
+Failure # 1 (occurred at 2023-05-03_14-37-04)
+Traceback (most recent call last):
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/tune/trial_runner.py", line 890, in _process_trial
+    results = self.trial_executor.fetch_result(trial)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/tune/ray_trial_executor.py", line 788, in fetch_result
+    result = ray.get(trial_future[0], timeout=DEFAULT_GET_TIMEOUT)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/_private/client_mode_hook.py", line 105, in wrapper
+    return func(*args, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/worker.py", line 1627, in get
+    raise value
+ray.exceptions.RayActorError: The actor died because of an error raised in its creation task, [36mray::MAPPOTrainer.__init__()[39m (pid=40104, ip=172.20.10.4)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer_template.py", line 137, in __init__
+    Trainer.__init__(self, config, env, logger_creator)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 623, in __init__
+    super().__init__(config, logger_creator)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/tune/trainable.py", line 107, in __init__
+    self.setup(copy.deepcopy(self.config))
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer_template.py", line 147, in setup
+    super().setup(config)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 776, in setup
+    self._init(self.config, self.env_creator)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer_template.py", line 171, in _init
+    self.workers = self._make_workers(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/agents/trainer.py", line 858, in _make_workers
+    return WorkerSet(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/evaluation/worker_set.py", line 110, in __init__
+    self._local_worker = self._make_worker(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/evaluation/worker_set.py", line 406, in _make_worker
+    worker = cls(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/evaluation/rollout_worker.py", line 584, in __init__
+    self._build_policy_map(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/evaluation/rollout_worker.py", line 1384, in _build_policy_map
+    self.policy_map.create_policy(name, orig_cls, obs_space, act_space,
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/policy/policy_map.py", line 143, in create_policy
+    self[policy_id] = class_(observation_space, action_space,
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/policy/policy_template.py", line 280, in __init__
+    self._initialize_loss_from_dummy_batch(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/policy/policy.py", line 731, in _initialize_loss_from_dummy_batch
+    self.compute_actions_from_input_dict(
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/policy/torch_policy.py", line 324, in compute_actions_from_input_dict
+    return self._compute_action_helper(input_dict, state_batches,
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/utils/threading.py", line 21, in wrapper
+    return func(self, *a, **k)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/policy/torch_policy.py", line 388, in _compute_action_helper
+    dist_inputs, state_out = self.model(input_dict, state_batches,
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/models/modelv2.py", line 243, in __call__
+    res = self.forward(restored, state or [], seq_lens)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/marllib/marl/models/zoo/mlp/base_mlp.py", line 100, in forward
+    self._features = self.p_encoder(self.inputs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/marllib/marl/models/zoo/encoder/base_encoder.py", line 107, in forward
+    output = self.encoder(inputs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/container.py", line 139, in forward
+    input = module(input)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/ray/rllib/models/torch/misc.py", line 160, in forward
+    return self._model(x)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/container.py", line 139, in forward
+    input = module(input)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/modules/linear.py", line 96, in forward
+    return F.linear(input, self.weight, self.bias)
+  File "/home/nono/.conda/envs/marllib/lib/python3.8/site-packages/torch/nn/functional.py", line 1847, in linear
+    return torch._C._nn.linear(input, weight, bias)
+RuntimeError: CUDA error: no kernel image is available for execution on the device
+CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+

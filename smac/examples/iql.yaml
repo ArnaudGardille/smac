@@ -1,0 +1,23 @@
+# --- QMIX specific parameters ---
+
+
+seed: 1
+torch_deterministic: True
+cuda: True
+track: False
+wandb_project_name: 'IQL'
+wandb_entity: None
+capture-video: False
+save-model: False
+upload-model: False
+hf-entity: ""
+
+env-id: 'smac'
+total-timesteps: 500000
+learning-rate: 2.5e-4
+buffer-size: 10000
+gamma: 0.99
+tau: 1.
+target-network-frequency: 500
+batch-size: 128
+start-e: 1
