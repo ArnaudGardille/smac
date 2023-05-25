@@ -136,7 +136,6 @@ class smac_parallel_env(ParallelEnv):
         self.frames = 0
         self.terminations = {agent: False for agent in self.possible_agents}
         self.truncations = {agent: False for agent in self.possible_agents}
-        print("lolilol")
         return self._observe_all(), None
 
     def get_agent_smac_id(self, agent):

@@ -121,13 +121,14 @@ class QAgent():
             setattr(self, k, v)
 
         self.agent_id = agent_id
+        self.action_space = env.action_space(agent_id)
 
         q_network = QNetwork(env, obs_shape, act_shape).to(device)
         optimizer = optim.Adam(q_network.parameters(), lr=self.learning_rate)
         target_network = QNetwork(env, obs_shape, act_shape).to(device)
         target_network.load_state_dict(q_network.state_dict())
 
-        print(self.buffer_size,env.observation_space(self.agent_id),env.action_space(self.agent_id),device)
+        #print(self.buffer_size,env.observation_space(self.agent_id),env.action_space(self.agent_id),device)
         rb = ReplayBuffer(
             self.buffer_size,
             env.observation_space(self.agent_id)['observation'],
@@ -135,13 +136,14 @@ class QAgent():
             device,handle_timeout_termination=False,
             )
 
+    def act(self, dict_obs, global_step=0):
+        obs, avail_actions = dict_obs['observation'], dict_obs['action_mask']
+        avail_actions_ind = np.nonzero(avail_actions)[0]
         
-
-    def act(self, obs, avail_actions, global_step=0):
         epsilon = linear_schedule(self.start_e, self.end_e, self.exploration_fraction * self.total_timesteps, global_step)
 
         if random.random() < epsilon:
-            actions = np.array(envs.single_action_space.sample())
+            actions = np.random.choice(avail_actions_ind)
         else:
             q_values = q_network(torch.Tensor(obs).to(device))
             considered_q_values = q_values*avail_actions
@@ -277,18 +279,20 @@ def main():
 
     while completed_episodes < episodes:
         env.reset()
-        for agent in env.agent_iter():
-            print("agent: ", agent)
+        for agent_id in env.agent_iter():
+            #print("agent: ", agent_id)
             env.render()
 
             obs, reward, terms, truncs, _ = env.last()
             total_reward += reward
             if terms or truncs:
                 action = None
-            elif isinstance(obs, dict) and "action_mask" in obs:
-                action = random.choice(np.flatnonzero(obs["action_mask"]))
             else:
-                action = env.action_spaces[agent].sample()
+                assert isinstance(obs, dict) and "action_mask" in obs
+                #action = random.choice(np.flatnonzero(obs["action_mask"]))
+                action = q_agents[agent_id].act(obs)
+
+            
             env.step(action)
 
         completed_episodes += 1
