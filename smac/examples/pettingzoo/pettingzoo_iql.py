@@ -12,6 +12,7 @@ import os
 import random
 import time
 from distutils.util import strtobool
+from tqdm import trange
 
 import gymnasium as gym
 import numpy as np
@@ -19,7 +20,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
+from cleanrl_utils.evals.dqn_eval import evaluate
+from cleanrl_utils.huggingface import push_to_hub
 
 from smac.env.pettingzoo import StarCraft2PZEnv
 from torch.utils.tensorboard import SummaryWriter
@@ -60,13 +63,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="CartPole-v1",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=500000,
+    parser.add_argument("--total-timesteps", type=int, default=500,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=10000,
+    parser.add_argument("--buffer-size", type=int, default=10,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -74,7 +77,7 @@ def parse_args():
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=128,
+    parser.add_argument("--batch-size", type=int, default=1,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
@@ -82,9 +85,9 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=10000,
+    parser.add_argument("--learning-starts", type=int, default=11,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=10,
+    parser.add_argument("--train-frequency", type=int, default=1,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -123,18 +126,20 @@ class QAgent():
         self.agent_id = agent_id
         self.action_space = env.action_space(agent_id)
 
-        q_network = QNetwork(env, obs_shape, act_shape).to(device)
-        optimizer = optim.Adam(q_network.parameters(), lr=self.learning_rate)
-        target_network = QNetwork(env, obs_shape, act_shape).to(device)
-        target_network.load_state_dict(q_network.state_dict())
+        self.q_network = QNetwork(env, obs_shape, act_shape).to(device)
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
+        self.target_network = QNetwork(env, obs_shape, act_shape).to(device)
+        self.target_network.load_state_dict(self.q_network.state_dict())
 
         #print(self.buffer_size,env.observation_space(self.agent_id),env.action_space(self.agent_id),device)
-        rb = ReplayBuffer(
+        self.rb = DictReplayBuffer(
             self.buffer_size,
-            env.observation_space(self.agent_id)['observation'],
+            env.observation_space(self.agent_id), #['observation'],
             env.action_space(self.agent_id),
             device,handle_timeout_termination=False,
             )
+
+        self.obs = None
 
     def act(self, dict_obs, global_step=0):
         obs, avail_actions = dict_obs['observation'], dict_obs['action_mask']
@@ -154,27 +159,29 @@ class QAgent():
 
         return actions
 
-    def train(self):
+    def train(self, global_step):
         # ALGO LOGIC: training.
         if global_step > self.learning_starts:
+
             if global_step % self.train_frequency == 0:
-                data = rb.sample(self.batch_size)
+                print('on train!', self.rb.buffer_size, self.rb.full)
+                data = self.rb.sample(self.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
+                    target_max, _ = self.target_network(data.next_observations).max(dim=1)
                     td_target = data.rewards.flatten() + self.gamma * target_max * (1 - data.dones.flatten())
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
+                old_val = self.q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
-                if global_step % 100 == 0:
-                    writer.add_scalar("losses/td_loss", loss, global_step)
-                    writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
+                if global_step % 1 == 0:
+                    self.writer.add_scalar("losses/td_loss", loss, global_step)
+                    self.writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
-                    writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
                 # optimize the model
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
             # update target network
             if global_step % self.target_network_frequency == 0:
@@ -183,15 +190,31 @@ class QAgent():
                         self.tau * q_network_param.data + (1.0 - self.tau) * target_network_param.data
                     )
 
-            if self.save_model:
-                self.save()
+        if self.save_model:
+            self.save()
+
+        
+
+        if self.upload_model:
+            self.upload_model()
+
+    def add_to_rb(self, next_obs, actions, reward, terminated, truncated, infos):
+        
+        if self.obs is not None:
+            # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
+            real_next_obs = next_obs.copy()
+            if truncated:
+                real_next_obs = infos["final_observation"]
+            self.rb.add(self.obs, real_next_obs, actions, reward, terminated, infos)
+
+        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        self.obs = next_obs
 
     def save(self):
 
         model_path = f"runs/{run_name}/{self.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.dqn_eval import evaluate
 
         episodic_returns = evaluate(
             model_path,
@@ -206,12 +229,12 @@ class QAgent():
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
 
-        if self.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
+        
+    def upload_model(self):
 
-            repo_name = f"{self.env_id}-{self.exp_name}-seed{self.seed}"
-            repo_id = f"{self.hf_entity}/{repo_name}" if self.hf_entity else repo_name
-            push_to_hub(self, episodic_returns, repo_id, "DQN", f"runs/{run_name}", f"videos/{run_name}-eval")
+        repo_name = f"{self.env_id}-{self.exp_name}-seed{self.seed}"
+        repo_id = f"{self.hf_entity}/{repo_name}" if self.hf_entity else repo_name
+        push_to_hub(self, episodic_returns, repo_id, "DQN", f"runs/{run_name}", f"videos/{run_name}-eval")
 
 
     
@@ -266,8 +289,6 @@ def main():
     print('nb_act: ',nb_act)    
     print('-'*20)
     
-    episodes = 10
-
     ### Creating Agents
     q_agents = {agent:QAgent(env, agent, args, nb_obs, nb_act)  for agent in env.agents}
 
@@ -277,14 +298,17 @@ def main():
     done = False
     completed_episodes = 0
 
-    while completed_episodes < episodes:
+    for completed_episodes in trange(args.total_timesteps):
         env.reset()
         for agent_id in env.agent_iter():
             #print("agent: ", agent_id)
             env.render()
 
-            obs, reward, terms, truncs, _ = env.last()
+            obs, reward, terms, truncs, infos = env.last()
             total_reward += reward
+
+
+
             if terms or truncs:
                 action = None
             else:
@@ -292,14 +316,27 @@ def main():
                 #action = random.choice(np.flatnonzero(obs["action_mask"]))
                 action = q_agents[agent_id].act(obs)
 
+                q_agents[agent_id].add_to_rb(obs, action, reward, terms, truncs, infos)
             
+            q_agents[agent_id].train(completed_episodes)
+
             env.step(action)
 
-        completed_episodes += 1
+        # TRY NOT TO MODIFY: record rewards for plotting purposes
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                # Skip the envs that are not done
+                if "episode" not in info:
+                    continue
+                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                writer.add_scalar("charts/epsilon", epsilon, global_step)
+
 
     env.close()
 
-    print("Average total reward", total_reward / episodes)
+    print("Average total reward", total_reward / args.total_timesteps)
 
 
 if __name__ == "__main__":
