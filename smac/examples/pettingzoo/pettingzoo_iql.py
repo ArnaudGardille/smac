@@ -44,7 +44,7 @@ def parse_args():
         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
@@ -82,7 +82,7 @@ def parse_args():
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=2**20,
+    parser.add_argument("--batch-size", type=int, default=256, #2**20,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
@@ -92,7 +92,7 @@ def parse_args():
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
     parser.add_argument("--learning-starts", type=int, default=500,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=800,
+    parser.add_argument("--train-frequency", type=int, default=80,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -143,11 +143,11 @@ class QNetwork(nn.Module):
     def __init__(self, env, obs_shape, act_shape):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(obs_shape, 120),
+            nn.Linear(obs_shape, 512),
             nn.ReLU(),
-            nn.Linear(120, 84),
+            nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Linear(84, act_shape),
+            nn.Linear(256, act_shape),
         )
 
     def forward(self, x):
@@ -206,7 +206,7 @@ class QAgent():
         # ALGO LOGIC: training.
         if global_step > self.learning_starts:
             #print("mod: ", (global_step + 100*self.id) % self.train_frequency)
-            if (global_step + 100*self.id) % self.train_frequency == 0:
+            if (global_step + 10*self.id) % self.train_frequency == 0:
                 data = self.replay_buffer.sample(self.batch_size)
                 #print("data: ", data)
                 action_mask = data.next_observations['action_mask']
