@@ -61,15 +61,15 @@ def parse_args():
         help="whether we give the global state to agents instead of their respective observation")
 
     # Algorithm specific arguments
-    parser.add_argument("--env-id", type=str, default="CartPole-v1",
+    parser.add_argument("--env-id", type=str, default="smac-v1",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=500,
+    parser.add_argument("--total-timesteps", type=int, default=500000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=10,
+    parser.add_argument("--buffer-size", type=int, default=10000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -77,7 +77,7 @@ def parse_args():
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=1,
+    parser.add_argument("--batch-size", type=int, default=128,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
@@ -85,9 +85,9 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=11,
+    parser.add_argument("--learning-starts", type=int, default=10000,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=1,
+    parser.add_argument("--train-frequency", type=int, default=10,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -95,6 +95,33 @@ def parse_args():
 
     return args
 
+### Fioriture
+
+args = parse_args()
+run_name = f"iql_{int(time.time())}"
+if args.track:
+    import wandb
+
+    wandb.init(
+        project=args.wandb_project_name,
+        entity=args.wandb_entity,
+        sync_tensorboard=True,
+        config=vars(args),
+        name=run_name,
+        monitor_gym=True,
+        save_code=True,
+    )
+writer = SummaryWriter(f"runs/{run_name}")
+writer.add_text(
+    "hyperparameters",
+    "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+)
+
+# TRY NOT TO MODIFY: seeding
+random.seed(args.seed)
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.backends.cudnn.deterministic = args.torch_deterministic
 
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
@@ -123,7 +150,7 @@ class QAgent():
         for k, v in vars(args).items():
             setattr(self, k, v)
 
-        self.agent_id = agent_id
+        self.agent_id = str(agent_id)
         self.action_space = env.action_space(agent_id)
 
         self.q_network = QNetwork(env, obs_shape, act_shape).to(device)
@@ -164,19 +191,22 @@ class QAgent():
         if global_step > self.learning_starts:
 
             if global_step % self.train_frequency == 0:
-                print('on train!', self.rb.buffer_size, self.rb.full)
                 data = self.rb.sample(self.batch_size)
+
+                action_mask = data.next_observations['action_mask']
+                next_observations = data.next_observations['observation']
+
+
                 with torch.no_grad():
-                    target_max, _ = self.target_network(data.next_observations).max(dim=1)
+                    target_max, _ = (self.target_network(next_observations)*action_mask).max(dim=1)
                     td_target = data.rewards.flatten() + self.gamma * target_max * (1 - data.dones.flatten())
-                old_val = self.q_network(data.observations).gather(1, data.actions).squeeze()
+                old_val = (self.q_network(next_observations)*action_mask).gather(1, data.actions).squeeze()
+
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 1 == 0:
-                    self.writer.add_scalar("losses/td_loss", loss, global_step)
-                    self.writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
-                    print("SPS:", int(global_step / (time.time() - start_time)))
-                    self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    writer.add_scalar(self.agent_id+"td_loss", loss, global_step)
+                    writer.add_scalar(self.agent_id+"q_values", old_val.mean().item(), global_step)
 
                 # optimize the model
                 self.optimizer.zero_grad()
@@ -242,34 +272,6 @@ class QAgent():
 
 
 def main():
-    
-    ### Fioriture
-
-    args = parse_args()
-    run_name = f"iql_{int(time.time())}"
-    if args.track:
-        import wandb
-
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=run_name,
-            monitor_gym=True,
-            save_code=True,
-        )
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
-    # TRY NOT TO MODIFY: seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
 
     ### Creating Env
     env = StarCraft2PZEnv.env(map_name="8m")
@@ -291,8 +293,6 @@ def main():
     
     ### Creating Agents
     q_agents = {agent:QAgent(env, agent, args, nb_obs, nb_act)  for agent in env.agents}
-
-    start_time = time.time()
 
     total_reward = 0
     done = False
