@@ -21,7 +21,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
 from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
+from stable_baselines3.common.save_util import load_from_pkl, save_to_pkl
+
 from cleanrl_utils.evals.dqn_eval import evaluate
 from cleanrl_utils.huggingface import push_to_hub
 
@@ -87,9 +90,9 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=5000,
+    parser.add_argument("--learning-starts", type=int, default=500,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=8000,
+    parser.add_argument("--train-frequency", type=int, default=800,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -169,7 +172,7 @@ class QAgent():
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         #print(self.buffer_size,env.observation_space(self.name),env.action_space(self.name),device)
-        self.rb = DictReplayBuffer(
+        self.replay_buffer = DictReplayBuffer(
             self.buffer_size,
             env.observation_space(self.name), #['observation'],
             env.action_space(self.name),
@@ -200,8 +203,8 @@ class QAgent():
         # ALGO LOGIC: training.
         if global_step > self.learning_starts:
             #print("mod: ", (global_step + 100*self.id) % self.train_frequency)
-            if (global_step + 1000*self.id) % self.train_frequency == 0:
-                data = self.rb.sample(self.batch_size)
+            if (global_step + 100*self.id) % self.train_frequency == 0:
+                data = self.replay_buffer.sample(self.batch_size)
                 #print("data: ", data)
                 action_mask = data.next_observations['action_mask']
                 next_observations = data.next_observations['observation']
@@ -244,9 +247,9 @@ class QAgent():
             real_next_obs = next_obs.copy()
             if truncated:
                 real_next_obs = infos["final_observation"]
-            self.rb.add(self.obs, real_next_obs, actions, reward, terminated, infos)
+            self.replay_buffer.add(self.obs, real_next_obs, actions, reward, terminated, infos)
 
-            #assert not self.rb.full
+            #assert not self.replay_buffer.full
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         self.obs = next_obs
@@ -256,6 +259,10 @@ class QAgent():
         model_path = f"runs/{run_name}/saved_models/{self.name}.cleanrl_model"
         torch.save(self.q_network.state_dict(), model_path)
         #print(f"model saved to {model_path}")
+
+    def load(model_path):
+        self.q_network.load_state_dict(torch.load(model_path))
+        print(f"model sucessfullt loaded from to {model_path}")
         
     def upload_model(self):
 
@@ -267,7 +274,13 @@ class QAgent():
         pprint(self.__dict__)
         return ""
     
+    def save_buffer(self):
+        buffer_path = f"runs/{run_name}/saved_models/{self.name}_buffer.pkl"
+        save_to_pkl(path, self.replay_buffer)
 
+    def load_buffer(self, buffer_path):
+        self.replay_buffer = load_from_pkl(buffer_path)
+        assert isinstance(self.replay_buffer, ReplayBuffer), "The replay buffer must inherit from ReplayBuffer class"
 
 
 def main():
