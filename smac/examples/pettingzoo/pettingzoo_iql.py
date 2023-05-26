@@ -100,12 +100,15 @@ def parse_args():
 
     return args
 
-### Fioriture
 
 args = parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 print('Device: ', device)
+
+def load_experiment(run_name, load_buffer=False):
+    q_agents = None
+    return q_agents
 
 run_name = f"iql_{int(time.time())}"
 if args.save_model:
