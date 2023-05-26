@@ -13,6 +13,7 @@ import random
 import time
 from distutils.util import strtobool
 from tqdm import trange
+from pprint import pprint
 
 import gymnasium as gym
 import numpy as np
@@ -29,7 +30,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 import stable_baselines3 as sb3
 
-device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
 
 def parse_args():
@@ -49,6 +49,8 @@ def parse_args():
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
+    parser.add_argument("--display-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+        help="whether to show the video")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="whether to capture videos of the agent performances (check out `videos` folder)")
     parser.add_argument("--save-model", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
@@ -63,13 +65,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="smac-v1",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=500000,
+    parser.add_argument("--total-timesteps", type=int, default=50000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=10000,
+    parser.add_argument("--buffer-size", type=int, default=100000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -77,7 +79,7 @@ def parse_args():
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=128,
+    parser.add_argument("--batch-size", type=int, default=2048,
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
@@ -85,9 +87,9 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=10000,
+    parser.add_argument("--learning-starts", type=int, default=100,
         help="timestep to start learning")
-    parser.add_argument("--train-frequency", type=int, default=10,
+    parser.add_argument("--train-frequency", type=int, default=800,
         help="the frequency of training")
     args = parser.parse_args()
     # fmt: on
@@ -98,6 +100,10 @@ def parse_args():
 ### Fioriture
 
 args = parse_args()
+
+device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+print('Device: ', device)
+
 run_name = f"iql_{int(time.time())}"
 if args.track:
     import wandb
@@ -146,23 +152,24 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     
 
 class QAgent():
-    def __init__(self, env, agent_id, args, obs_shape, act_shape):
+    def __init__(self, env, name, id, args, obs_shape, act_shape):
         for k, v in vars(args).items():
             setattr(self, k, v)
 
-        self.agent_id = str(agent_id)
-        self.action_space = env.action_space(agent_id)
+        self.id = int(id)
+        self.name = str(name)
+        self.action_space = env.action_space(self.name)
 
         self.q_network = QNetwork(env, obs_shape, act_shape).to(device)
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
         self.target_network = QNetwork(env, obs_shape, act_shape).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
-        #print(self.buffer_size,env.observation_space(self.agent_id),env.action_space(self.agent_id),device)
+        #print(self.buffer_size,env.observation_space(self.name),env.action_space(self.name),device)
         self.rb = DictReplayBuffer(
             self.buffer_size,
-            env.observation_space(self.agent_id), #['observation'],
-            env.action_space(self.agent_id),
+            env.observation_space(self.name), #['observation'],
+            env.action_space(self.name),
             device,handle_timeout_termination=False,
             )
 
@@ -189,10 +196,10 @@ class QAgent():
     def train(self, global_step):
         # ALGO LOGIC: training.
         if global_step > self.learning_starts:
-
-            if global_step % self.train_frequency == 0:
+            #print("mod: ", (global_step + 100*self.id) % self.train_frequency)
+            if (global_step + 100*self.id) % self.train_frequency == 0:
                 data = self.rb.sample(self.batch_size)
-
+                #print("data: ", data)
                 action_mask = data.next_observations['action_mask']
                 next_observations = data.next_observations['observation']
 
@@ -205,8 +212,8 @@ class QAgent():
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 1 == 0:
-                    writer.add_scalar(self.agent_id+"td_loss", loss, global_step)
-                    writer.add_scalar(self.agent_id+"q_values", old_val.mean().item(), global_step)
+                    writer.add_scalar(self.name+"/td_loss", loss, global_step)
+                    writer.add_scalar(self.name+"/q_values", old_val.mean().item(), global_step)
 
                 # optimize the model
                 self.optimizer.zero_grad()
@@ -215,7 +222,7 @@ class QAgent():
 
             # update target network
             if global_step % self.target_network_frequency == 0:
-                for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
+                for target_network_param, q_network_param in zip(self.target_network.parameters(), self.q_network.parameters()):
                     target_network_param.data.copy_(
                         self.tau * q_network_param.data + (1.0 - self.tau) * target_network_param.data
                     )
@@ -242,8 +249,8 @@ class QAgent():
 
     def save(self):
 
-        model_path = f"runs/{run_name}/{self.exp_name}.cleanrl_model"
-        torch.save(q_network.state_dict(), model_path)
+        model_path = f"runs/{run_name}/{self.exp_name}/{self.name}.cleanrl_model"
+        torch.save(self.q_network.state_dict(), model_path)
         print(f"model saved to {model_path}")
 
         episodic_returns = evaluate(
@@ -266,7 +273,9 @@ class QAgent():
         repo_id = f"{self.hf_entity}/{repo_name}" if self.hf_entity else repo_name
         push_to_hub(self, episodic_returns, repo_id, "DQN", f"runs/{run_name}", f"videos/{run_name}-eval")
 
-
+    def __str__(self):
+        pprint(self.__dict__)
+        return ""
     
 
 
@@ -292,7 +301,13 @@ def main():
     print('-'*20)
     
     ### Creating Agents
-    q_agents = {agent:QAgent(env, agent, args, nb_obs, nb_act)  for agent in env.agents}
+    q_agents = {agent:QAgent(env, agent, i, args, nb_obs, nb_act)  for i, agent in enumerate(env.agents)}
+
+    for agent in q_agents.values():
+        print()
+        print('-'*20)
+        print(agent)
+        print('-'*20)
 
     total_reward = 0
     done = False
@@ -301,8 +316,8 @@ def main():
     for completed_episodes in trange(args.total_timesteps):
         env.reset()
         for agent_id in env.agent_iter():
-            #print("agent: ", agent_id)
-            env.render()
+            if args.display_video:
+                env.render()
 
             obs, reward, terms, truncs, infos = env.last()
             total_reward += reward
@@ -318,9 +333,10 @@ def main():
 
                 q_agents[agent_id].add_to_rb(obs, action, reward, terms, truncs, infos)
             
-            q_agents[agent_id].train(completed_episodes)
-
             env.step(action)
+
+        for agent in q_agents.values():
+            agent.train(completed_episodes)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
