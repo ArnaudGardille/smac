@@ -44,7 +44,7 @@ def parse_args():
         help="seed of the experiment")
     parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
@@ -68,13 +68,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="smac-v1",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=50000,
+    parser.add_argument("--total-timesteps", type=int, default=500000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=100000,
+    parser.add_argument("--buffer-size", type=int, default=1000000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -82,7 +82,7 @@ def parse_args():
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
         help="the timesteps it takes to update the target network")
-    parser.add_argument("--batch-size", type=int, default=256, #2**20,
+    parser.add_argument("--batch-size", type=int, default=2**18, #256, #
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
         help="the starting epsilon for exploration")
@@ -293,8 +293,8 @@ def main():
     env.reset()
 
     agent_0 = env.agents[0]
-    nb_obs = int(env.observation_space(agent_0)['observation'].shape[0])
-    nb_act = int(env.action_space(agent_0).n)
+    size_obs = int(env.observation_space(agent_0)['observation'].shape[0])
+    size_act = int(env.action_space(agent_0).n)
     
     print('-'*20)
     print('agents: ',env.agents)
@@ -302,12 +302,12 @@ def main():
     print('observation_space: ',env.observation_space(agent_0))
     print('action_space: ',env.action_space(agent_0))
     print('infos: ',env.infos)    
-    print('nb_obs: ',nb_obs)    
-    print('nb_act: ',nb_act)    
+    print('size_obs: ',size_obs)    
+    print('size_act: ',size_act)    
     print('-'*20)
     
     ### Creating Agents
-    q_agents = {agent:QAgent(env, agent, i, args, nb_obs, nb_act)  for i, agent in enumerate(env.agents)}
+    q_agents = {agent:QAgent(env, agent, i, args, size_obs, size_act)  for i, agent in enumerate(env.agents)}
 
     for agent in q_agents.values():
         print()
@@ -362,6 +362,40 @@ def main():
     env.close()
 
     #print("Average total reward", total_reward / args.total_timesteps)
+
+def test():
+    writer = SummaryWriter(f"runs/{run_name}")
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+
+    env = gym.make('CartPole-v1', render_mode="rgb_array")
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+
+    size_obs = 4
+    size_act = 2
+
+    agent = QAgent(env, 'agent', 0, args, size_obs, size_act)
+
+    start_time = time.time()
+
+    # TRY NOT TO MODIFY: start the game
+    obs, _ = env.reset(seed=0)
+    for global_step in range(args.total_timesteps):
+        dict_obs = {'observation': obs, 'action_mask':np.array([1,1])}
+
+        act = agent.act(dict_obs)
+
+        next_obs, rewards, terminated, truncated, infos = envs.step(actions)
+        dict_next_obs = {'observation': next_obs, 'action_mask':np.array([1,1])}
+
+
+        agent.add_to_rb(dict_next_obs, action, reward, terms, truncs, infos)
+
+        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        obs = next_obs
+
 
 
 if __name__ == "__main__":
