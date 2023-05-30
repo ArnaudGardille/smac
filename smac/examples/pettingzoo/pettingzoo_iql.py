@@ -33,6 +33,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import stable_baselines3 as sb3
 
+from pettingzoo.test import api_test
 
 
 def parse_args():
@@ -243,19 +244,20 @@ class QAgent():
         if self.upload_model:
             self.upload_model()
 
-    def add_to_rb(self, next_obs, actions, reward, terminated, truncated, infos):
+    def add_to_rb(self, obs, action, reward, next_obs, terminated, truncated=False, infos=None):
         
         if self.obs is not None:
             # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
             real_next_obs = next_obs.copy()
             if truncated:
                 real_next_obs = infos["final_observation"]
-            self.replay_buffer.add(self.obs, real_next_obs, actions, reward, terminated, infos)
+                print('real_next_obs:', real_next_obs)
+            self.replay_buffer.add(obs, real_next_obs, action, reward, terminated, infos)
 
-            #assert not self.replay_buffer.full
+        if terminated:
+            self.obs = None
+        #assert not self.replay_buffer.full
 
-        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        self.obs = next_obs
 
     def save(self):
 
@@ -290,21 +292,24 @@ def main():
 
     ### Creating Env
     env = StarCraft2PZEnv.env(map_name="8m")
+    #api_test(env, num_cycles=1000, verbose_progress=True)
+
     env.reset()
 
     agent_0 = env.agents[0]
     size_obs = int(env.observation_space(agent_0)['observation'].shape[0])
     size_act = int(env.action_space(agent_0).n)
     
-    print('-'*20)
-    print('agents: ',env.agents)
-    print('num_agents: ',env.num_agents)
-    print('observation_space: ',env.observation_space(agent_0))
-    print('action_space: ',env.action_space(agent_0))
-    print('infos: ',env.infos)    
-    print('size_obs: ',size_obs)    
-    print('size_act: ',size_act)    
-    print('-'*20)
+    if False:
+        print('-'*20)
+        print('agents: ',env.agents)
+        print('num_agents: ',env.num_agents)
+        print('observation_space: ',env.observation_space(agent_0))
+        print('action_space: ',env.action_space(agent_0))
+        print('infos: ',env.infos)    
+        print('size_obs: ',size_obs)    
+        print('size_act: ',size_act)    
+        print('-'*20)
     
     ### Creating Agents
     q_agents = {agent:QAgent(env, agent, i, args, size_obs, size_act)  for i, agent in enumerate(env.agents)}
@@ -334,7 +339,6 @@ def main():
             episodic_return += reward
             nb_steps += 1
             writer.add_scalar(agent_id+"/reward", reward, completed_episodes)
-
 
             if terms or truncs:
                 action = None
