@@ -34,7 +34,7 @@ from torch.utils.tensorboard import SummaryWriter
 import stable_baselines3 as sb3
 
 from pettingzoo.test import api_test
-from sklearn.preprocessing import OneHotEncoder
+
 
 def parse_args():
     # fmt: off
@@ -95,10 +95,6 @@ def parse_args():
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=80,
         help="the frequency of training")
-    parser.add_argument("--single-agent", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to use a single network for all agents. Identity is the added to observation")
-    parser.add_argument("--add-id", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to add agents identity to observation")
     args = parser.parse_args()
     # fmt: on
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
@@ -187,14 +183,10 @@ class QAgent():
             device,handle_timeout_termination=False,
             )
 
-        #self.obs = None
-
-
+        self.obs = None
 
     def act(self, dict_obs, global_step=0):
         obs, avail_actions = dict_obs['observation'], dict_obs['action_mask']
-
-
         avail_actions_ind = np.nonzero(avail_actions)[0]
         
         epsilon = linear_schedule(self.start_e, self.end_e, self.exploration_fraction * self.total_timesteps, global_step)
@@ -321,19 +313,6 @@ def main():
     
     ### Creating Agents
     q_agents = {agent:QAgent(env, agent, i, args, size_obs, size_act)  for i, agent in enumerate(env.agents)}
-    
-    if args.single_agent:
-        agent_0 = env.agents[0]
-        for agent in q_agents:
-            q_agents[agent].q_network = q_agents[agent_0].q_network
-            q_agents[agent].replay_buffer = q_agents[agent_0].replay_buffer
-
-    if self.add_id:
-        #np.zeros(np.ceil(np.log2(len(env.agents)), 4))
-        enc = OneHotEncoder(sparse_output=False).fit(np.array(env.agents).reshape(-1, 1))
-        one_hot = {agent:enc.transform(np.array([agent]).reshape(-1, 1))[0] for agent in env.agents}
-        
-        
 
     if False:
         for agent in q_agents.values():
@@ -357,15 +336,6 @@ def main():
         #for agent_id in env.agent_iter():
             if args.display_video:
                 env.render()
-            
-            if args.use_state:
-                for a in env.agents:
-                    obs[a]['observation'] = env.state()
-
-            if args.add_id:
-                for a in env.agents:
-                    obs[a]['observation'] = np.concatenate([obs[a]['observation'], one_hot[a]]) 
-                
 
             actions = {agent: np.random.choice(np.nonzero(obs[agent]['action_mask'])[0]) for agent in env.agents}  
 
@@ -379,11 +349,8 @@ def main():
             #writer.add_scalars("Rewards", rewards, completed_episodes)
             #writer.add_scalar("Global Reward", global_reward, completed_episodes)
 
-        if args.single_agent:
-            agent_0.train(completed_episodes)
-        else:
-            for agent in q_agents.values():
-                agent.train(completed_episodes)
+        #for agent in q_agents.values():
+        #    agent.train(completed_episodes)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalars("Episodic Return/", episodic_returns, completed_episodes)
