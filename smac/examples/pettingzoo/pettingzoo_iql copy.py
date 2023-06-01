@@ -39,8 +39,6 @@ import stable_baselines3 as sb3
 from pettingzoo.test import api_test
 from sklearn.preprocessing import OneHotEncoder
 
-from pettingzoo.classic import tictactoe_v3
-
 def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
@@ -80,14 +78,37 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=100000,
+    parser.add_argument("--buffer-size", type=int, default=1000000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
     parser.add_argument("--tau", type=float, default=1.,
         help="the target network update rate")
     parser.add_argument("--target-network-frequency", type=int, default=500,
-        help="the timesteps it takes to update the target network")
+        help="the timesteps it takes to update 
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        the target network")
     parser.add_argument("--batch-size", type=int, default=2**18, #256, #
         help="the batch size of sample from the reply memory")
     parser.add_argument("--start-e", type=float, default=1,
@@ -96,7 +117,7 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=5000,
+    parser.add_argument("--learning-starts", type=int, default=50000,
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=80,
         help="the frequency of training")
@@ -206,17 +227,13 @@ class QAgent():
         avail_actions_ind = np.nonzero(avail_actions)[0]
         
         epsilon = linear_schedule(self.start_e, self.end_e, self.exploration_fraction * self.total_timesteps, global_step)
-        writer.add_scalar(self.name+"/epsilon", epsilon, global_step)
 
         if random.random() < epsilon:
             actions = np.random.choice(avail_actions_ind)
         else:
-            with torch.no_grad():
-                q_values = self.q_network(torch.Tensor(obs).to(device)).cpu()
-                #print(q_values, avail_actions, q_values*avail_actions)
-                #considered_q_values = q_values*avail_actions
-                considered_q_values = q_values + (avail_actions-1)*9999
-                actions = torch.argmax(considered_q_values).numpy()
+            q_values = q_network(torch.Tensor(obs).to(device))
+            considered_q_values = q_values*avail_actions
+            actions = torch.argmax(considered_q_values, dim=1).cpu().numpy()
 
         avail_actions_ind = np.nonzero(avail_actions)[0]
         assert actions in avail_actions_ind
@@ -382,10 +399,9 @@ def main():
                     obs[a]['observation'] = env.state()
 
             
-            actions = {agent: q_agents[agent].act(obs[agent], completed_episodes) for agent in env.agents}  
-            
+                
 
-            #actions = {agent: np.random.choice(np.nonzero(obs[agent]['action_mask'])[0]) for agent in env.agents}  
+            actions = {agent: np.random.choice(np.nonzero(obs[agent]['action_mask'])[0]) for agent in env.agents}  
 
             next_obs, rewards, terminations, truncations, infos = env.step(actions)
 
@@ -427,128 +443,33 @@ def test():
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    env = tictactoe_v3.env()
-    env.reset(seed=0)
+    env = gym.make('CartPole-v1', render_mode="rgb_array")
+    env = gym.wrappers.RecordEpisodeStatistics(env)
 
-    #env = gym.make('CartPole-v1')
-    #env = gym.wrappers.RecordEpisodeStatistics(env)
+    size_obs = 4
+    size_act = 2
 
-    size_obs = 3*3*2
-    size_act = 8
-
-    #agent = QAgent(env, 'agent', 0, args, size_obs, size_act)
+    agent = QAgent(env, 'agent', 0, args, size_obs, size_act)
 
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
-    agent_0 = env.agents[0]
-    if args.use_state:
-        size_obs = int(env.state_space['observation'].shape[0])
-    else:
-        size_obs = int(env.observation_space(agent_0)['observation'].shape[0])
-    
-    if args.add_id:
-        size_obs += 8
-    
-    size_act = int(env.action_space(agent_0).n)
-    
-    
-    print('-'*20)
-    print('agents: ',env.agents)
-    print('num_agents: ',env.num_agents)
-    print('observation_space: ',env.observation_space(agent_0))
-    print('action_space: ',env.action_space(agent_0))
-    #print('infos: ',env.infos)    
-    print('size_obs: ',size_obs)    
-    print('size_act: ',size_act)    
-    print('-'*20)
-    
-    print('agents:', env.agents)
-    ### Creating Agents
-    
-    enc = OneHotEncoder(sparse_output=False).fit(np.array(env.agents).reshape(-1, 1))
-    one_hot = {agent:enc.transform(np.array([agent]).reshape(-1, 1))[0] for agent in env.agents}
+    obs, _ = env.reset(seed=0)
+    for global_step in range(args.total_timesteps):
+        dict_obs = {'observation': obs, 'action_mask':np.array([1,1])}
 
-    q_agents = {agent:QAgent(env, agent, i, args, size_obs, size_act, one_hot[agent])  for i, agent in enumerate(env.agents)}
+        act = agent.act(dict_obs)
 
-    if args.single_agent:
-        agent_0 = q_agents[env.agents[0]]
-        for agent in q_agents:
-            q_agents[agent].q_network = agent_0.q_network
-            q_agents[agent].replay_buffer = agent_0.replay_buffer
-
-       
-
-    if False:
-        for agent in q_agents.values():
-            print()
-            print('-'*20)
-            print(agent)
-            print('-'*20)
-
-    #total_reward = 0
-    done = False
-    completed_episodes = 0
-
-    pbar=trange(args.total_timesteps)
-    for completed_episodes in pbar:
-        env.reset()
-        obs, _, _, _, _ = env.last()
+        next_obs, rewards, terminated, truncated, infos = envs.step(actions)
+        dict_next_obs = {'observation': next_obs, 'action_mask':np.array([1,1])}
 
 
-        episodic_returns = {}
-        nb_steps = 0
+        agent.add_to_rb(dict_next_obs, action, reward, terms, truncs, infos)
 
-        while env.agents:
-        #for agent_id in env.agent_iter():
-            if args.display_video:
-                env.render()
-            
-            if args.use_state:
-                for a in env.agents:
-                    obs[a]['observation'] = env.state()
-
-            
-                
-            actions = {agent: q_agents[agent].act(obs[agent], completed_episodes) for agent in env.agents}  
-
-            #actions = {agent: np.random.choice(np.nonzero(obs[agent]['action_mask'])[0]) for agent in env.agents}  
-
-            next_obs, rewards, terminations, truncations, infos = env.step(actions)
-
-            for agent in next_obs:
-                q_agents[agent].add_to_rb(obs[agent], actions[agent], rewards[agent], next_obs[agent], terminations[agent], truncations[agent], infos[agent])
-
-            episodic_returns = {k: rewards.get(k, 0) + episodic_returns.get(k, 0) for k in set(rewards) | set(episodic_returns)}
-            nb_steps += 1
-
-            obs = next_obs
-
-            #writer.add_scalars("Rewards", rewards, completed_episodes)
-            #writer.add_scalar("Global Reward", global_reward, completed_episodes)
-
-        if args.single_agent:
-            agent_0.train(completed_episodes)
-        else:
-            for agent in q_agents.values():
-                agent.train(completed_episodes)
-
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
-        writer.add_scalars("Episodic Return/", episodic_returns, completed_episodes)
-        
-        total_episodic_return = sum(episodic_returns.values())
-        pbar.set_description(f"episodic return={total_episodic_return:5.1f}")
-        writer.add_scalar("Total Episodic Return", total_episodic_return, completed_episodes)
-        
-        writer.add_scalar("Nb Steps", nb_steps, completed_episodes)
-
-
-    env.close()
-
-    #print("Average total reward", total_reward / args.total_timesteps)
+        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        obs = next_obs
 
 
 
 if __name__ == "__main__":
     main()
-    #test()
