@@ -1,0 +1,2 @@
+/home/nono/.conda/envs/smac_env/bin/python /home/nono/Documents/Dassault/smac/smac/examples/pettingzoo/pettingzoo_iql.py --load-agents-from iql_1685621318 --display-video --no-training
+
