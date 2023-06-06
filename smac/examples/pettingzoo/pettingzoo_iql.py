@@ -89,7 +89,7 @@ def parse_args():
         help="the learning rate of the optimizer")
     parser.add_argument("--num-envs", type=int, default=1,
         help="the number of parallel game environments")
-    parser.add_argument("--buffer-size", type=int, default=1000000,
+    parser.add_argument("--buffer-size", type=int, default=10000000,
         help="the replay memory buffer size")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
@@ -107,7 +107,7 @@ def parse_args():
         help="the ending epsilon for exploration")
     parser.add_argument("--exploration-fraction", type=float, default=0.5,
         help="the fraction of `total-timesteps` it takes from start-e to go end-e")
-    parser.add_argument("--learning-starts", type=int, default=5000,
+    parser.add_argument("--learning-starts", type=int, default=50000,
         help="timestep to start learning")
     parser.add_argument("--train-frequency", type=int, default=30,
         help="the frequency of training")
@@ -259,7 +259,7 @@ class QAgent():
         # ALGO LOGIC: training.
         if global_step > self.learning_starts:
             #print("mod: ", (global_step + 100*self.id) % self.train_frequency)
-            if (global_step + 10*self.id) % self.train_frequency == 0:
+            if (global_step + 100*self.id) % self.train_frequency == 0:
                 data = self.replay_buffer.sample(self.batch_size)
                 #print("data: ", data)
                 action_mask = data.next_observations['action_mask']
